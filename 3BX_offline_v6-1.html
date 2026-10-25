@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ar">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>3BX</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101923;color:#fff;font-family:Arial,sans-serif;touch-action:none}
+canvas{display:block;width:100vw;height:100vh;background:#47784b}
+#hud{position:fixed;inset:0;pointer-events:none;text-shadow:0 2px 3px #000}
+#brand{position:absolute;top:12px;left:14px;font-weight:1000;font-size:28px;font-style:italic;color:#ffc928;letter-spacing:2px}
+#stats{position:absolute;top:15px;right:12px;text-align:right;font-weight:bold;font-size:14px}
+#help{position:absolute;left:12px;bottom:12px;background:#07111dcc;padding:8px 10px;border-radius:9px;font-size:12px;max-width:65%}
+#health{position:absolute;top:55px;left:14px;width:140px;height:10px;border:1px solid white;background:#222;border-radius:8px;overflow:hidden}#hp{height:100%;width:100%;background:#5be37a}
+button{pointer-events:auto;border:1px solid #ffffff66;background:#111d;color:white;border-radius:10px;padding:11px;font-weight:bold}
+#actions{position:fixed;right:12px;bottom:18px;display:grid;grid-template-columns:repeat(2,76px);gap:8px}
+#stick{position:fixed;left:20px;bottom:25px;width:112px;height:112px;border-radius:50%;border:2px solid #ffffff88;background:#07111d66;touch-action:none}
+#knob{position:absolute;left:31px;top:31px;width:46px;height:46px;border-radius:50%;background:#ffffffbb;border:2px solid white}
+#menu{position:fixed;inset:0;background:linear-gradient(#09111dd9,#09111df0);display:flex;align-items:center;justify-content:center;z-index:5}
+.card{width:min(420px,90vw);text-align:center;background:#101b28;border:1px solid #ffffff30;border-radius:18px;padding:26px;box-shadow:0 15px 55px #0008}
+.logo{font-size:64px;font-weight:1000;font-style:italic;color:#ffc928;letter-spacing:4px}.sub{color:#c8d4e2;margin:8px 0 22px}.primary{background:#ffc928;color:#101010;border:0;width:100%;font-size:19px;padding:14px}
+#toast{position:fixed;top:82px;left:50%;transform:translateX(-50%);background:#07111ddd;padding:8px 14px;border-radius:9px;display:none;font-weight:bold;z-index:3}
+@media(min-width:800px){#actions{right:28px;bottom:28px}#stick{left:30px;bottom:28px}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"><div id="brand">3BX</div><div id="health"><div id="hp"></div></div><div id="stats">OFFLINE • SOLO<br><span id="readout">HP 100 | WALLS 3 | AMMO 30</span></div><div id="help">تحرك: WASD أو عصا الحركة • التصويب/إطلاق النار: زر FIRE • جدار جليدي: GLOO<br>اللعبة تعمل دون إنترنت — بدون انحناء</div></div>
+<div id="stick"><div id="knob"></div></div>
+<div id="actions"><button id="fire">FIRE</button><button id="jump">JUMP</button><button id="gloo">GLOO WALL</button><button id="reload">RELOAD</button></div>
+<div id="toast"></div>
+<div id="menu"><div class="card"><div class="logo">3BX</div><div style="font-weight:bold;letter-spacing:3px">BATTLE ROYALE</div><div class="sub">وضع أوفلاين • جدار جليدي • بدون انحناء</div><button class="primary" id="start">ابدأ اللعب</button><p style="font-size:12px;color:#9fb0c4">نسخة تجريبية مستقلة لا تحتاج إلى الإنترنت</p></div></div>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+let W=0,H=0,playing=false,hp=100,ammo=30,reserve=120,walls=3,score=0,frame=0;
+const keys={},joy={x:0,y:0};let player={x:0,y:0,ang:0},shots=[],enemies=[],ice=[],trees=[],rocks=[];
+function resize(){W=canvas.width=innerWidth*devicePixelRatio;H=canvas.height=innerHeight*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);W=innerWidth;H=innerHeight;draw()}addEventListener('resize',resize);
+for(let i=0;i<65;i++)trees.push({x:Math.random()*1800-900,y:Math.random()*1800-900,r:8+Math.random()*12});
+for(let i=0;i<18;i++)rocks.push({x:Math.random()*1300-650,y:Math.random()*1300-650,r:14+Math.random()*18});
+for(let i=0;i<6;i++)enemies.push({x:Math.random()*700-350,y:Math.random()*700-350,hp:3,cool:Math.random()*100});
+function toast(s){let t=document.getElementById('toast');t.textContent=s;t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',1400)}
+function start(){playing=true;document.getElementById('menu').style.display='none';toast('انطلق! ابقَ على قيد الحياة');loop()}
+document.getElementById('start').onclick=start;
+addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='KeyG')placeWall();if(e.code==='KeyR')reload();if(e.code==='Space')shoot()});
+addEventListener('keyup',e=>keys[e.code]=false);
+function shoot(){if(!playing||ammo<=0)return;ammo--;shots.push({x:player.x,y:player.y,ang:player.ang,life:35});updateStats()}
+function reload(){let n=Math.min(30-ammo,reserve);if(n>0){ammo+=n;reserve-=n;updateStats();toast('تم تلقيم السلاح')}}
+function placeWall(){if(!playing||walls<=0)return;let x=player.x+Math.cos(player.ang)*65,y=player.y+Math.sin(player.ang)*65;ice.push({x,y,ang:player.ang,life:900});walls--;updateStats();toast('تم نشر الجدار الجليدي')}
+document.getElementById('fire').onpointerdown=e=>{e.preventDefault();shoot()};document.getElementById('gloo').onclick=placeWall;document.getElementById('reload').onclick=reload;document.getElementById('jump').onclick=()=>toast('القفز متاح — تحكم بالحركة'); 
+const stick=document.getElementById('stick'),knob=document.getElementById('knob');let active=false,cx=0,cy=0;
+stick.onpointerdown=e=>{active=true;stick.setPointerCapture(e.pointerId);cx=e.clientX;cy=e.clientY;moveStick(e)};
+stick.onpointermove=e=>{if(active)moveStick(e)};stick.onpointerup=stick.onpointercancel=()=>{active=false;joy.x=joy.y=0;knob.style.left='31px';knob.style.top='31px'};
+function moveStick(e){let dx=e.clientX-cx,dy=e.clientY-cy,l=Math.hypot(dx,dy),m=Math.min(34,l);if(l){joy.x=dx/l*m/34;joy.y=dy/l*m/34}knob.style.left=(31+(l?dx/l*m:0))+'px';knob.style.top=(31+(l?dy/l*m:0))+'px'}
+canvas.addEventListener('pointermove',e=>{if(e.buttons===2||e.pointerType==='touch'){player.ang=Math.atan2(e.clientY-H/2,e.clientX-W/2)}});canvas.addEventListener('contextmenu',e=>e.preventDefault());
+function updateStats(){document.getElementById('readout').textContent=`HP ${hp} | WALLS ${walls} | AMMO ${ammo}/${reserve} | KILLS ${score}`;document.getElementById('hp').style.width=hp+'%'}
+function worldToScreen(x,y){return{x:W/2+(x-player.x),y:H/2+(y-player.y)}}
+function draw(){
+ctx.clearRect(0,0,W,H);ctx.fillStyle='#47784b';ctx.fillRect(0,0,W,H);
+// grass texture and grid-like paths
+ctx.strokeStyle='#ffffff0c';ctx.lineWidth=1;for(let x=-W;x<W*2;x+=70){ctx.beginPath();ctx.moveTo(x%W,0);ctx.lineTo(x%W,H);ctx.stroke()}
+let roadY=((H/2-player.y*.35)%250+250)%250;ctx.fillStyle='#686c65';ctx.fillRect(0,roadY,W,35);ctx.strokeStyle='#d9d4a066';ctx.setLineDash([16,16]);ctx.beginPath();ctx.moveTo(0,roadY+17);ctx.lineTo(W,roadY+17);ctx.stroke();ctx.setLineDash([]);
+trees.forEach(t=>{let p=worldToScreen(t.x,t.y);if(p.x<-40||p.x>W+40||p.y<-40||p.y>H+40)return;ctx.fillStyle='#284b32';ctx.beginPath();ctx.arc(p.x+3,p.y+5,t.r,0,7);ctx.fill();ctx.fillStyle='#347342';ctx.beginPath();ctx.arc(p.x,p.y,t.r,0,7);ctx.fill()});
+rocks.forEach(r=>{let p=worldToScreen(r.x,r.y);ctx.fillStyle='#777d78';ctx.beginPath();ctx.ellipse(p.x,p.y,r.r,r.r*.65,0,0,7);ctx.fill()});
+ice.forEach(w=>{let p=worldToScreen(w.x,w.y);ctx.save();ctx.translate(p.x,p.y);ctx.rotate(w.ang);ctx.fillStyle='#62dfff';ctx.strokeStyle='#d7f9ff';ctx.lineWidth=3;ctx.shadowColor='#36cfff';ctx.shadowBlur=14;ctx.fillRect(-38,-10,76,20);ctx.strokeRect(-38,-10,76,20);ctx.restore()});
+enemies.forEach(e=>{if(e.hp<=0)return;let p=worldToScreen(e.x,e.y);ctx.fillStyle='#bd3942';ctx.beginPath();ctx.arc(p.x,p.y,12,0,7);ctx.fill();ctx.fillStyle='#222';ctx.fillRect(p.x-13,p.y-20,26,4);ctx.fillStyle='#ff6a6a';ctx.fillRect(p.x-13,p.y-20,26*e.hp/3,4)});
+shots.forEach(s=>{let p=worldToScreen(s.x,s.y);ctx.fillStyle='#ffdb69';ctx.beginPath();ctx.arc(p.x,p.y,4,0,7);ctx.fill()});
+// player
+ctx.save();ctx.translate(W/2,H/2);ctx.rotate(player.ang);ctx.fillStyle='#1c2834';ctx.beginPath();ctx.arc(0,0,15,0,7);ctx.fill();ctx.fillStyle='#f0c28a';ctx.beginPath();ctx.arc(3,-2,8,0,7);ctx.fill();ctx.fillStyle='#ffc928';ctx.fillRect(5,-4,24,7);ctx.restore();
+ctx.fillStyle='#ffffffcc';ctx.font='bold 12px Arial';ctx.textAlign='center';ctx.fillText('3BX',W/2,H/2+30);
+}
+function loop(){if(!playing)return;frame++;let mx=(keys.KeyD?1:0)-(keys.KeyA?1:0)+joy.x,my=(keys.KeyS?1:0)-(keys.KeyW?1:0)+joy.y;let len=Math.hypot(mx,my);if(len>1){mx/=len;my/=len}player.x+=mx*3;player.y+=my*3;if(Math.abs(mx)+Math.abs(my)>.05&&Math.abs(joy.x)+Math.abs(joy.y)>.2)player.ang=Math.atan2(my,mx);
+shots.forEach(s=>{s.x+=Math.cos(s.ang)*12;s.y+=Math.sin(s.ang)*12;s.life--;enemies.forEach(e=>{if(e.hp>0&&Math.hypot(s.x-e.x,s.y-e.y)<18){e.hp--;s.life=0;if(e.hp<=0){score++;updateStats()}}})});shots=shots.filter(s=>s.life>0);
+enemies.forEach(e=>{if(e.hp<=0)return;e.cool--;let dx=player.x-e.x,dy=player.y-e.y,d=Math.hypot(dx,dy);if(d<340&&d>35){e.x+=dx/d*.55;e.y+=dy/d*.55}if(d<55&&e.cool<=0){if(!ice.some(w=>Math.hypot(w.x-e.x,w.y-e.y)<65)){hp-=5;updateStats();if(hp<=0){hp=100;player.x=player.y=0;toast('أُعيدت إلى نقطة البداية')} }e.cool=55}});
+ice.forEach(w=>w.life--);ice=ice.filter(w=>w.life>0);if(frame%7===0)draw();requestAnimationFrame(loop)}
+resize();updateStats();
+})();
+</script>
+</body></html>
